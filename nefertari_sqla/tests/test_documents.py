@@ -75,7 +75,6 @@ class TestBaseMixin(object):
         class MyModel(docs.BaseDocument):
             __tablename__ = 'mymodel'
             _nested_relationships = ['parent']
-            _nesting_depth = 0
 
             my_id = fields.IdField()
             name = fields.StringField(primary_key=True)
@@ -87,7 +86,6 @@ class TestBaseMixin(object):
         class MyModel2(docs.BaseDocument):
             _nested_relationships = ['myself']
             __tablename__ = 'mymodel2'
-            _nesting_depth = 1
 
             name = fields.StringField(primary_key=True)
             myself = fields.Relationship(
@@ -98,9 +96,13 @@ class TestBaseMixin(object):
                 ref_column_type=fields.StringField)
         memory_db()
 
-        my_model_mapping = MyModel.get_es_mapping()
+        model1_mapping = MyModel.get_es_mapping()
+        model2_mapping = MyModel2.get_es_mapping()
+        model1_properties = model1_mapping['MyModel']['properties'].copy()
+        model2_properties = model2_mapping['MyModel2']['properties'].copy()
 
-        assert my_model_mapping == {
+        model2_properties['myself'] = {'type': 'string'}
+        assert model1_mapping == {
             'MyModel': {
                 'properties': {
                     '_pk': {'type': 'string'},
@@ -109,14 +111,16 @@ class TestBaseMixin(object):
                     'groups': {'type': 'string'},
                     'my_id': {'type': 'long'},
                     'name': {'type': 'string'},
-                    'parent': {'type': 'string'}
+                    'parent': {
+                        'type': 'nested',
+                        'properties': model2_properties
+                    }
                 }
             }
         }
-        my_model2_mapping = MyModel2.get_es_mapping()
-        myself_props = my_model_mapping['MyModel']['properties']
 
-        assert my_model2_mapping == {
+        model1_properties['parent'] = {'type': 'string'}
+        assert model2_mapping == {
             'MyModel2': {
                 'properties': {
                     '_pk': {'type': 'string'},
@@ -125,7 +129,7 @@ class TestBaseMixin(object):
                     'name': {'type': 'string'},
                     'myself': {
                         'type': 'nested',
-                        'properties': myself_props
+                        'properties': model1_properties
                     }
                 }
             }
@@ -558,18 +562,50 @@ class TestBaseMixin(object):
         assert result['other_obj3']['_type'] == 'MyModel'
         assert result['other_obj3']['id'] == 4
 
-    def test_to_dict_depth(self, memory_db):
-        class MyModel(docs.BaseDocument):
+    def test_to_dict_nesting(self, memory_db):
+        class MyModelA(docs.BaseDocument):
             __tablename__ = 'mymodel'
-            _nested_relationships = ['other_obj']
+            _nested_relationships = ['parent']
             id = fields.IdField(primary_key=True)
-            other_obj = fields.StringField()
-        memory_db()
-        myobj1 = MyModel(id=1)
-        myobj1.other_obj = MyModel(id=2)
 
-        result = myobj1.to_dict(_depth=0)
-        assert result['other_obj'] == 2
+        class MyModelB(docs.BaseDocument):
+            _nested_relationships = ['myself']
+            __tablename__ = 'mymodel2'
+            id = fields.IdField(primary_key=True)
+
+            myself = fields.Relationship(
+                document='MyModelA', backref_name='parent',
+                uselist=False, backref_uselist=False)
+            child_id = fields.ForeignKeyField(
+                ref_document='MyModelA', ref_column='mymodel.id',
+                ref_column_type=fields.IdField)
+
+        memory_db()
+        myobj1 = MyModelA(id=1)
+        myobj2 = MyModelB(id=2, myself=myobj1)
+        assert myobj1.to_dict() == {
+            '_pk': '1',
+            '_type': 'MyModelA',
+            '_version': None,
+            'id': 1,
+            'parent': {'_pk': '2',
+                       '_type': 'MyModelB',
+                       '_version': None,
+                       'child_id': None,
+                       'id': 2,
+                       'myself': 1}}
+
+        assert myobj2.to_dict() == {
+            '_pk': '2',
+            '_type': 'MyModelB',
+            '_version': None,
+            'child_id': None,
+            'id': 2,
+            'myself': {'_pk': '1',
+                       '_type': 'MyModelA',
+                       '_version': None,
+                       'id': 1,
+                       'parent': 2}}
 
     @patch.object(docs, 'object_session')
     def test_update_iterables_dict(self, obj_session, memory_db):
