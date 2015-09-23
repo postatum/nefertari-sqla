@@ -75,6 +75,7 @@ class TestBaseMixin(object):
         class MyModel(docs.BaseDocument):
             __tablename__ = 'mymodel'
             _nested_relationships = ['parent']
+            _nesting_redundancy = 1
 
             my_id = fields.IdField()
             name = fields.StringField(primary_key=True)
@@ -86,6 +87,7 @@ class TestBaseMixin(object):
         class MyModel2(docs.BaseDocument):
             _nested_relationships = ['myself']
             __tablename__ = 'mymodel2'
+            _nesting_redundancy = 0
 
             name = fields.StringField(primary_key=True)
             myself = fields.Relationship(
@@ -101,7 +103,6 @@ class TestBaseMixin(object):
         model1_properties = model1_mapping['MyModel']['properties'].copy()
         model2_properties = model2_mapping['MyModel2']['properties'].copy()
 
-        model2_properties['myself'] = {'type': 'string'}
         assert model1_mapping == {
             'MyModel': {
                 'properties': {
@@ -111,10 +112,7 @@ class TestBaseMixin(object):
                     'groups': {'type': 'string'},
                     'my_id': {'type': 'long'},
                     'name': {'type': 'string'},
-                    'parent': {
-                        'type': 'nested',
-                        'properties': model2_properties
-                    }
+                    'parent': {'type': 'string'}
                 }
             }
         }
@@ -536,10 +534,12 @@ class TestBaseMixin(object):
         class MyModel(docs.BaseDocument):
             __tablename__ = 'mymodel'
             _nested_relationships = ['other_obj3']
+            _nesting_redundancy = 100
             id = fields.IdField(primary_key=True)
             other_obj = fields.StringField()
             other_obj2 = fields.StringField()
             other_obj3 = fields.StringField()
+
         memory_db()
         myobj1 = MyModel(id=1)
         myobj1.other_obj = MyModel(id=2)

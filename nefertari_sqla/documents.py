@@ -103,10 +103,13 @@ class BaseMixin(object):
             included documents. If relationship field is not
             present in this list, this field's value in JSON will be an
             object's ID or list of IDs.
+        _nesting_redundancy: Number of times instances of this document
+            can be included in JSON output as complete objects.
     """
     _public_fields = None
     _auth_fields = None
     _nested_relationships = ()
+    _nesting_redundancy = 1
 
     _type = property(lambda self: self.__class__.__name__)
 
@@ -115,7 +118,10 @@ class BaseMixin(object):
         """ Generate ES mapping from model schema. """
         from nefertari.elasticsearch import ES
         if _ancestors is None:
-            _ancestors = ()
+            _ancestors = {}
+        _ancestors.setdefault(cls.__name__, 0)
+        _ancestors[cls.__name__] += 1
+
         if types_map is None:
             types_map = TYPES_MAP
 
@@ -140,13 +146,14 @@ class BaseMixin(object):
 
         for name, column in relationships.items():
             model_cls = column.mapper.class_
-            should_be_nested = (
-                name in cls._nested_relationships and
-                model_cls.__name__ not in _ancestors)
-            if should_be_nested:
+            nested_rel = name in cls._nested_relationships
+            curr_depth = _ancestors.get(model_cls.__name__, 0)
+            depth_reached = curr_depth >= model_cls._nesting_redundancy
+
+            if nested_rel and not depth_reached:
                 column_type = {'type': 'nested'}
                 submapping = model_cls.get_es_mapping(
-                    _ancestors=_ancestors+(cls.__name__,))
+                    _ancestors=_ancestors)
                 column_type.update(list(submapping.values())[0])
             else:
                 rel_pk_field = column.mapper.class_.pk_field_type()
@@ -699,7 +706,9 @@ class BaseMixin(object):
         return null_values
 
     def to_dict(self, **kwargs):
-        _ancestors = kwargs.get('_ancestors') or ()
+        _ancestors = kwargs.get('_ancestors') or {}
+        _ancestors.setdefault(self._type, 0)
+        _ancestors[self._type] += 1
 
         _data = dictset()
         native_fields = self.__class__.native_fields()
@@ -707,16 +716,16 @@ class BaseMixin(object):
             value = getattr(self, field, None)
 
             if isinstance(value, (BaseMixin, InstrumentedList)):
-                same_ancestor = False
+                depth_reached = False
                 if value:
                     obj = value if isinstance(value, BaseMixin) else value[0]
-                    same_ancestor = obj._type in _ancestors
+                    curr_depth = _ancestors.get(obj._type, 0)
+                    depth_reached = curr_depth >= obj._nesting_redundancy
                 include = field in self._nested_relationships
-                if not include or same_ancestor:
+                if not include or depth_reached:
                     encoder = lambda v: getattr(v, v.pk_field(), None)
                 else:
-                    encoder = lambda v: v.to_dict(
-                        _ancestors=_ancestors + (self._type,))
+                    encoder = lambda v: v.to_dict(_ancestors=_ancestors)
 
             if isinstance(value, BaseMixin):
                 value = encoder(value)
