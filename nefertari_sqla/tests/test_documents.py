@@ -101,7 +101,6 @@ class TestBaseMixin(object):
         model1_mapping = MyModel.get_es_mapping()
         model2_mapping = MyModel2.get_es_mapping()
         model1_properties = model1_mapping['MyModel']['properties'].copy()
-        model2_properties = model2_mapping['MyModel2']['properties'].copy()
 
         assert model1_mapping == {
             'MyModel': {
