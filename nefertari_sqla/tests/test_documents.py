@@ -122,7 +122,7 @@ class TestBaseMixin(object):
                     'child_id': {'type': 'string'},
                     'name': {'type': 'string'},
                     'myself': {
-                        'type': 'nested',
+                        'type': 'object',
                         'properties': myself_props
                     }
                 }
